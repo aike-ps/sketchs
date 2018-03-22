@@ -1,18 +1,15 @@
 #include <Arduino.h>
-#include <DS1307.h>
 #include <Wire.h>
-#include <BMP085.h>
-#include <SHT2x.h>
+#include <Adafruit_BMP085.h>
 #include "U8glib.h"
+#include <DS3232RTC.h>
+#include <TimeLib.h>
 
-//U8GLIB_ST7920_128X64_4X u8g(SCK = E, MOSI = R/W, CS = RS);
-//U8GLIB_ST7920_128X64_4X u8g(E,R/W,RS);
-//U8GLIB_ST7920_128X64_4X u8g(серый,черный,белый);
-U8GLIB_ST7920_128X64_1X u8g(13, 11, 10);  // SPI Com: SCK = en = 18, MOSI = rw = 16, CS = di = 17
-DS1307 rtc(4, 5);
-BMP085 dps = BMP085();
-Time  t;
+U8GLIB_ST7920_128X64_1X u8g(13, 12, 11);
 
+Adafruit_BMP085 dps;
+
+DS3232RTC  rtc(true);
 long now_hour = 0;
 long Temperature = 0, Pressure = 0;
 int pwm = 3;
@@ -23,52 +20,101 @@ unsigned long hydim = 0;
 int counter = 0;
 int counter2 = 0;
 int light = 50;
+int pressure_counter = 0;
+int pressureArray[128];
+long previousMillis = 0;
+long interval = 1;
+tmElements_t tm;
 
-long previousMillis = 0;        // храним время последнего переключения светодиода
-long interval = 1000;           // интервал между включение/выключением светодиода (1 секунда)
+int sensor = A0;
+int key = A1;
+int backlight = 3;
+
+int current = 128;
+
 
 void setup()
 {
-  sound_beep();
-  analogWrite(pwm, light);
+  pinMode(backlight, OUTPUT);
+
+  setSyncProvider(RTC.get);
+  if (timeStatus() != timeSet) {
+    Serial.println("Unable to sync with the RTC");
+  }
+  else {
+    Serial.println("RTC has set the system time");
+  }
+
   Serial.begin(9600);
   boot_screen();
   setup_bmp();
   getData();
-  setLight();
+  updatePressure();
+  show_data();
+  previousMillis = tm.Second;
+
+  pinMode(key, INPUT);
+  pinMode(sensor, INPUT);
+
 }
 
 void loop()
 {
+  RTC.read(tm);
 
-  /* if (analogRead(3) < 2)
-    {
-     if (light == 0) {
-       light  = 200;
-     }
-     else {
-       light -= 10;
-     }
-     analogWrite(pwm, light);
-     delay(500);
-    }
-    else {
-  */
-
-  if (counter == 300) {
+  if (counter == 30) {
     getData();
     counter = 0;
     show_data();
     setLight();
   }
 
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis > interval) {
+  int currentMillis = tm.Second;
+
+  if (currentMillis == 0) {
+    previousMillis = 0;
+    show_data();
+    counter++;
+    pressure_counter++;
+  }
+
+  if (currentMillis - previousMillis >= interval) {
     show_data();
     counter++;
     previousMillis = currentMillis;
+    pressure_counter++;
+
   }
+
+  if (pressure_counter == 900) {
+    updatePressure();
+    pressure_counter = 0;
+    show_data();
+  }
+
 }
+
+void updatePressure()
+{
+  int i;
+  int tmp_val = pres - 730;
+  for (i = 1; i < 128; i++ ) {
+    if (i == 127) {
+      pressureArray[i] = tmp_val;
+    } else {
+      pressureArray[i] = pressureArray[i + 1];
+    }
+    if (pressureArray[i] > 30) {
+      pressureArray[i] = 31;
+    }
+
+    if (pressureArray[i] < 1) {
+      pressureArray[i] = 1;
+    }
+  }
+
+}
+
 
 void boot_screen()
 {
@@ -76,9 +122,9 @@ void boot_screen()
   u8g.firstPage();
   do {
     u8g.setFont(u8g_font_8x13B);
-    //u8g.setScale2x2();
     u8g.drawStr( 0, 10, "Loading...");
   } while ( u8g.nextPage() );
+  setLight();
 }
 
 
@@ -86,86 +132,104 @@ void setup_bmp()
 {
   Wire.begin();
   delay(1000);
-  dps.init(MODE_ULTRA_HIGHRES, 210, true);
-  dumpRegisters();
-  dps.dumpCalData();
-  delay(5000);
-  Serial.begin(9600);
+  dps.begin();
   getData();
+  RTC.read(tm);
+
+
 }
 
 void show_data()
 {
+  int hour = tm.Hour;
+  int minute = tm.Minute;
+  int second = tm.Second;
+  int year = tm.Year + 1970;
+  int month = tm.Month;
+  int day = tm.Day;
+
   u8g.firstPage();
   do {
     u8g.setFont(u8g_font_8x13B);
     u8g.setScale2x2();
-    u8g.drawStr( 0, 10, rtc.getTimeStr());
+    u8g.setPrintPos(0, 10);
+    if (hour < 10) {
+      u8g.print(0);
+    }
+    u8g.print(hour);
+    u8g.print(":");
+    if (minute < 10) {
+      u8g.print(0);
+    }
+    u8g.print(minute);
+    u8g.print(":");
+    if (second < 10) {
+      u8g.print(0);
+    }
+    u8g.print(second);
     u8g.undoScale();
     u8g.setFont(u8g_font_6x12);
-    u8g.drawStr( 0, 30, rtc.getDOWStr(FORMAT_SHORT));
-    u8g.drawStr( 60, 30, rtc.getDateStr());
-    u8g.drawStr( 0, 45, "T(*C)   H(%)   P(mm)");
-    u8g.setPrintPos(0, 60);
+    u8g.setPrintPos(0, 31);
+    u8g.print(year);
+    u8g.print(".");
+    if (month < 10) {
+      u8g.print(0);
+    }
+    u8g.print(month);
+    u8g.print(".");
+
+    if (day < 10) {
+      u8g.print(0);
+    }
+    u8g.print(day);
+    u8g.print(" ");
     u8g.print( temp );
-    u8g.print( "*     " );
-    u8g.print( hydim );
-    u8g.print( "%    ");
+    u8g.write(0xBA);
+    u8g.print("C");
+    u8g.print(" ");
     u8g.print( pres );
     u8g.print("mm");
+    int i;
+    for (i = 0; i < 128; i++ ) {
+      u8g.drawLine(i, 64, i, 64 -  pressureArray[i]);
+    }
+    u8g.drawLine(0, 32, 128, 32);
+
   } while ( u8g.nextPage() );
+  setLight();
 }
-
-
 
 
 void getData()
 {
-  dps.getTemperature(&Temperature);
-  temp = Temperature / 10;
-  dps.getPressure(&Pressure);
-  pres = Pressure / 133.3;
-  hydim = SHT2x.GetHumidity();
-  temp2 = SHT2x.GetTemperature();
-  t = rtc.getTime();
+  temp = dps.readTemperature();
+  pres = dps.readPressure() / 133.3;
 
 }
 
 void setLight()
 {
-  if (t.hour > 21) {
-    light = 20;
+  int a = analogRead(sensor);
+
+  if (a > 700) {
+    a = 700;
   }
-  else {
-    if (t.hour < 7) {
-      light = 20;
-    }
-    else {
-      light = 200;
-    }
+
+  if (a < 20) {
+    a = 20;
   }
-  if ( now_hour != t.hour) {
-    analogWrite(pwm, light);
-    now_hour = t.hour;
-  }
+ 
+  current = map(a, 20, 700, 10, 254);
+  analogWrite(backlight, current);
+
 }
 
 void set_time()
 {
-  rtc.halt(false);
-  rtc.setDOW(SUNDAY);        // Set Day-of-Week to SUNDAY
-  rtc.setTime(10, 10, 0);     // Set the time to 12:00:00 (24hr format)
-  rtc.setDate(9, 7, 2016);   // Set the date to October 3th, 2010
+
+
 }
 
-void dumpRegisters()
-{
-  byte ValidRegisterAddr[] = {0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xF6, 0xF7, 0xF8, 0xF9};
-  byte _b, i, totregisters = sizeof(ValidRegisterAddr);
-  for (i = 0; i < totregisters; i++) {
-    dps.readmem(ValidRegisterAddr[i], 1, &_b);
-  }
-}
 
 void sound_beep()
 {
