@@ -4,6 +4,7 @@
 #include "U8glib.h"
 #include <DS3232RTC.h>
 #include <TimeLib.h>
+#include <EEPROM.h>
 
 U8GLIB_ST7920_128X64_1X u8g(13, 12, 11);
 
@@ -44,18 +45,19 @@ void setup()
   else {
     Serial.println("RTC has set the system time");
   }
-
+ 	
   Serial.begin(9600);
   boot_screen();
   setup_bmp();
   getData();
+  //clearEEPROM();
+  //readFromEEPROM();
   updatePressure();
   show_data();
   previousMillis = tm.Second;
-
+  //set_time();
   pinMode(key, INPUT);
   pinMode(sensor, INPUT);
-
 }
 
 void loop()
@@ -83,15 +85,16 @@ void loop()
     counter++;
     previousMillis = currentMillis;
     pressure_counter++;
-
   }
 
-  if (pressure_counter == 900) {
+  if (pressure_counter == 1800) {
     updatePressure();
+	//readFromEEPROM();
+	//writeToEEPROM();
     pressure_counter = 0;
     show_data();
   }
-
+  
 }
 
 void updatePressure()
@@ -99,11 +102,13 @@ void updatePressure()
   int i;
   int tmp_val = pres - 730;
   for (i = 1; i < 128; i++ ) {
-    if (i == 127) {
+    
+	if (i == 127) {
       pressureArray[i] = tmp_val;
     } else {
       pressureArray[i] = pressureArray[i + 1];
     }
+	
     if (pressureArray[i] > 30) {
       pressureArray[i] = 31;
     }
@@ -111,10 +116,42 @@ void updatePressure()
     if (pressureArray[i] < 1) {
       pressureArray[i] = 1;
     }
+	
   }
-
 }
 
+void writeToEEPROM()
+{
+	for (int i = 0; i < 128; i++ ) {
+		EEPROM.put(i, pressureArray[i]);
+		Serial.print(i);
+		Serial.print(" ");
+		Serial.print(pressureArray[i]);
+		Serial.print(" ");
+		EEPROM.get(i, pressureArray[i]);
+		Serial.println(pressureArray[i]);
+	} 
+}
+
+void clearEEPROM()
+{
+	for (int i = 0; i < 128; i++ ) {
+		EEPROM.put(i, 0);
+	} 
+}
+
+void readFromEEPROM()
+{
+	for (int i = 0; i < 128; i++ ) {
+		EEPROM.get(i, pressureArray[i]);
+		Serial.print(i);
+		Serial.print(" ");
+		Serial.print(pressureArray[i]);
+		Serial.print(" ");
+		EEPROM.get(i, pressureArray[i]);
+		Serial.println(pressureArray[i]);
+	} 
+}
 
 void boot_screen()
 {
@@ -126,7 +163,6 @@ void boot_screen()
   } while ( u8g.nextPage() );
   setLight();
 }
-
 
 void setup_bmp()
 {
@@ -219,15 +255,18 @@ void setLight()
     a = 20;
   }
  
-  current = map(a, 20, 700, 10, 254);
+  current = map(a, 20, 700, 2, 254);
   analogWrite(backlight, current);
 
 }
 
 void set_time()
-{
-
-
+{	  
+    RTC.read(tm);
+	tm.Hour = 21;
+	//time.Minute = minute;
+	//time.Second = second;
+	rtc.write(tm);
 }
 
 
