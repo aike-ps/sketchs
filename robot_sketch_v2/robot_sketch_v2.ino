@@ -212,10 +212,10 @@ int checkDistance(int trig, int echo )
 {
   int i = 0;
   int roundDuration = 0;
-  for(i; i < 50; i++){
+  for(i; i < 25; i++){
      roundDuration += checkMainDistance(trig, echo );
   }
-  roundDuration = roundDuration / 50;
+  roundDuration = roundDuration / 25;
   
   return roundDuration;
 }
