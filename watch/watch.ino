@@ -7,9 +7,7 @@
 #include <EEPROM.h>
 
 U8GLIB_ST7920_128X64_1X u8g(13, 12, 11);
-
 Adafruit_BMP085 dps;
-
 DS3232RTC  rtc(true);
 long now_hour = 0;
 long Temperature = 0, Pressure = 0;
@@ -26,26 +24,25 @@ int pressureArray[128];
 long previousMillis = 0;
 long interval = 1;
 tmElements_t tm;
-
 int sensor = A0;
 int key = A1;
+int mode = 1;
+int menuTimeOut = 30000;
+
+// 1 - normal
+// 2 - set minute
+// 3 - set hour
+// 4 - set day
+// 5 - set month
+// 5 - set year
+
 int backlight = 3;
-
 int current = 128;
-
 
 void setup()
 {
   pinMode(backlight, OUTPUT);
-
   setSyncProvider(RTC.get);
-  if (timeStatus() != timeSet) {
-    Serial.println("Unable to sync with the RTC");
-  }
-  else {
-    Serial.println("RTC has set the system time");
-  }
- 	
   Serial.begin(9600);
   boot_screen();
   setup_bmp();
@@ -63,6 +60,31 @@ void setup()
 void loop()
 {
   RTC.read(tm);
+  int keyVal = analogRead(key);
+  if (keyVal > 50) {
+    delay(10);
+    keyVal = analogRead(key);
+    if (keyVal > 50) {
+      if (keyVal < 200) {
+        if (mode < 7) {
+          mode++;
+          if(mode == 7){
+            mode = 1;
+            show_data();
+          }
+        }
+      }
+    }
+  }
+
+  int currentMillis = tm.Second;
+
+  if (mode > 1) {
+    set_time();
+    delay(10);
+    show_data();
+    return;
+  }
 
   if (counter == 30) {
     getData();
@@ -71,30 +93,25 @@ void loop()
     setLight();
   }
 
-  int currentMillis = tm.Second;
-
   if (currentMillis == 0) {
     previousMillis = 0;
     show_data();
     counter++;
     pressure_counter++;
   }
-
   if (currentMillis - previousMillis >= interval) {
     show_data();
     counter++;
     previousMillis = currentMillis;
     pressure_counter++;
   }
-
   if (pressure_counter == 1800) {
     updatePressure();
-	//readFromEEPROM();
-	//writeToEEPROM();
+    //readFromEEPROM();
+    //writeToEEPROM();
     pressure_counter = 0;
     show_data();
   }
-  
 }
 
 void updatePressure()
@@ -102,55 +119,51 @@ void updatePressure()
   int i;
   int tmp_val = pres - 730;
   for (i = 1; i < 128; i++ ) {
-    
-	if (i == 127) {
+    if (i == 127) {
       pressureArray[i] = tmp_val;
     } else {
       pressureArray[i] = pressureArray[i + 1];
     }
-	
     if (pressureArray[i] > 30) {
       pressureArray[i] = 31;
     }
-
     if (pressureArray[i] < 1) {
       pressureArray[i] = 1;
     }
-	
   }
 }
 
 void writeToEEPROM()
 {
-	for (int i = 0; i < 128; i++ ) {
-		EEPROM.put(i, pressureArray[i]);
-		Serial.print(i);
-		Serial.print(" ");
-		Serial.print(pressureArray[i]);
-		Serial.print(" ");
-		EEPROM.get(i, pressureArray[i]);
-		Serial.println(pressureArray[i]);
-	} 
+  for (int i = 0; i < 128; i++ ) {
+    EEPROM.put(i, pressureArray[i]);
+    Serial.print(i);
+    Serial.print(" ");
+    Serial.print(pressureArray[i]);
+    Serial.print(" ");
+    EEPROM.get(i, pressureArray[i]);
+    Serial.println(pressureArray[i]);
+  }
 }
 
 void clearEEPROM()
 {
-	for (int i = 0; i < 128; i++ ) {
-		EEPROM.put(i, 0);
-	} 
+  for (int i = 0; i < 128; i++ ) {
+    EEPROM.put(i, 0);
+  }
 }
 
 void readFromEEPROM()
 {
-	for (int i = 0; i < 128; i++ ) {
-		EEPROM.get(i, pressureArray[i]);
-		Serial.print(i);
-		Serial.print(" ");
-		Serial.print(pressureArray[i]);
-		Serial.print(" ");
-		EEPROM.get(i, pressureArray[i]);
-		Serial.println(pressureArray[i]);
-	} 
+  for (int i = 0; i < 128; i++ ) {
+    EEPROM.get(i, pressureArray[i]);
+    Serial.print(i);
+    Serial.print(" ");
+    Serial.print(pressureArray[i]);
+    Serial.print(" ");
+    EEPROM.get(i, pressureArray[i]);
+    Serial.println(pressureArray[i]);
+  }
 }
 
 void boot_screen()
@@ -171,8 +184,6 @@ void setup_bmp()
   dps.begin();
   getData();
   RTC.read(tm);
-
-
 }
 
 void show_data()
@@ -213,7 +224,6 @@ void show_data()
     }
     u8g.print(month);
     u8g.print(".");
-
     if (day < 10) {
       u8g.print(0);
     }
@@ -225,12 +235,18 @@ void show_data()
     u8g.print(" ");
     u8g.print( pres );
     u8g.print("mm");
-    int i;
-    for (i = 0; i < 128; i++ ) {
-      u8g.drawLine(i, 64, i, 64 -  pressureArray[i]);
+    if (mode == 1) {
+      int i;
+      for (i = 0; i < 128; i++ ) {
+        u8g.drawLine(i, 64, i, 64 -  pressureArray[i]);
+      }
+      u8g.drawLine(0, 32, 128, 32);
     }
-    u8g.drawLine(0, 32, 128, 32);
-
+    else {
+      u8g.setPrintPos(0, 45);
+      u8g.print("mode ");
+      u8g.print(mode);
+    }
   } while ( u8g.nextPage() );
   setLight();
 }
@@ -240,35 +256,68 @@ void getData()
 {
   temp = dps.readTemperature();
   pres = dps.readPressure() / 133.3;
-
 }
 
 void setLight()
 {
   int a = analogRead(sensor);
-
   if (a > 700) {
     a = 700;
   }
-
   if (a < 20) {
     a = 20;
   }
- 
   current = map(a, 20, 700, 2, 254);
   analogWrite(backlight, current);
-
 }
 
 void set_time()
-{	  
-    RTC.read(tm);
-	tm.Hour = 21;
-	//time.Minute = minute;
-	//time.Second = second;
-	rtc.write(tm);
-}
+{
+  RTC.read(tm);
+  int keyVal = analogRead(key);
+  if (mode == 2) {
+    if (keyVal > 200 && keyVal < 300) {
+      tm.Minute++;
+    }
+    if (keyVal > 300) {
+      tm.Minute--;
+    }
+  }
+  if (mode == 3) {
+    if (keyVal > 200 && keyVal < 300) {
+      tm.Hour++;
+    }
+    if (keyVal > 300) {
+      tm.Hour--;
+    }
+  }
 
+  if (mode == 4) {
+    if (keyVal > 200 && keyVal < 300) {
+      tm.Day++;
+    }
+    if (keyVal > 300) {
+      tm.Day--;
+    }
+  }
+  if (mode == 5) {
+    if (keyVal > 200 && keyVal < 300) {
+      tm.Month++;
+    }
+    if (keyVal > 300) {
+      tm.Month--;
+    }
+  }
+  if (mode == 6) {
+    if (keyVal > 200 && keyVal < 300) {
+      tm.Year++;
+    }
+    if (keyVal > 300) {
+      tm.Year--;
+    }
+  }
+  rtc.write(tm);
+}
 
 void sound_beep()
 {
