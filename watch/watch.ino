@@ -72,13 +72,18 @@ void loop()
 {
   RTC.read(tm);
   int keyVal = analogRead(key);
+  
   if (keyVal > 50) {
     delay(10);
     keyVal = analogRead(key);
+    
     if (keyVal > 50) {
+      
       if (keyVal < 200) {
+        
         if (mode < 7) {
           mode++;
+          
           if (mode == 7) {
             mode = 1;
             show_data();
@@ -137,58 +142,49 @@ void updateDataArrays()
 void updatePressure()
 {
   int tmp_val = map(pres, 680, 780, 1, 14);
-  Serial.print(tmp_val);
-  Serial.print(" pres| ");
   updateDataArray(pressureArray, tmp_val);
 }
 
 void updateTemp()
 {
   int tmp_val = map(temp, -25, 45, 1, 14);
-  Serial.print(tmp_val);
-  Serial.print(" tmp| ");
   updateDataArray(tempArray, tmp_val);
 }
 
 void updateTempOut()
 {
   int tmp_val = map(outTemp, -25, 45, 1, 14);
-  Serial.print(tmp_val);
-  Serial.print(" tmp out| ");
   updateDataArray(tempOutArray, tmp_val);
 }
 
 void updateHydim()
 {
   int tmp_val = map(hydim, 0, 100, 1, 14);
-  Serial.print(tmp_val);
-  Serial.print(" hyd| ");
   updateDataArray(hydimArray, tmp_val);
 }
 
 void updateHydimOut()
 {
   int tmp_val = map(outHydim, 0, 100, 1, 14);
-  Serial.print(tmp_val);
-  Serial.print(" hyd out| ");
   updateDataArray(hydimOutArray, tmp_val);
-  Serial.println();
 }
 
 void updateDataArray(int arr[], int data)
 {
   int i;
-  Serial.print( data);
-  Serial.print(" tmp_val| ");
+  
   for (i = 0; i < 62; i++ ) {
+    
     if (i == 61) {
       arr[i] = data;
     } else {
       arr[i] = arr[i + 1];
     }
+    
     if (arr[i] > 14) {
       arr[i] = 14;
     }
+    
     if (arr[i] < 1) {
       arr[i] = 0;
     }
@@ -210,6 +206,7 @@ void setup_bmp()
 {
   Wire.begin();
   delay(1000);
+  
   if (! bme.begin(0x76, &Wire)) {
     Serial.println(F("Could not find a valid BME280 sensor, check wiring!"));
     while (1) delay(10);
@@ -232,16 +229,19 @@ void show_data()
     u8g.setFont(u8g_font_8x13B);
     u8g.setScale2x2();
     u8g.setPrintPos(0, 10);
+    
     if (hour < 10) {
       u8g.print(0);
     }
     u8g.print(hour);
     u8g.print(":");
+    
     if (minute < 10) {
       u8g.print(0);
     }
     u8g.print(minute);
     u8g.print(":");
+    
     if (second < 10) {
       u8g.print(0);
     }
@@ -269,17 +269,13 @@ void show_data()
 
     if (mode == 1) {
       int i;
+      
       for (i = 0; i < 62; i++ ) {
         u8g.drawLine(i, 49, i, 49 - pressureArray[i]);
         u8g.drawLine(i + 66, 49, i + 66, 49 - tempOutArray[i]);
         u8g.drawLine(i, 63, i, 63 - hydimArray[i]);
         u8g.drawLine(i + 66, 63, i + 66, 63 - hydimOutArray[i]);
       }
-
-//      u8g.drawLine(0, 49, 62, 49);
-//      u8g.drawLine(66, 49, 127, 49);
-//      u8g.drawLine(0, 63, 62, 63);
-//      u8g.drawLine(66, 63, 127, 63);
     }
     else {
       u8g.setPrintPos(0, 45);
@@ -287,6 +283,7 @@ void show_data()
       u8g.print(mode);
     }
   } while ( u8g.nextPage() );
+  
   setLight();
 }
 
@@ -298,11 +295,13 @@ void getData()
   hydim = int(bme.readHumidity());
 
   int tempVal = int(dht.readHumidity());
+  
   if (tempVal < 100 and tempVal > -100) {
     outHydim = tempVal;
   }
 
   tempVal  = int(dht.readTemperature());
+  
   if (tempVal < 100 and tempVal > -100) {
     outTemp = tempVal;
   }
@@ -322,9 +321,11 @@ void getData()
 void setLight()
 {
   int a = analogRead(sensor);
+  
   if (a > 700) {
     a = 700;
   }
+  
   if (a < 20) {
     a = 20;
   }
@@ -336,8 +337,11 @@ void set_time()
 {
   RTC.read(tm);
   int keyVal = analogRead(key);
+  
   if (mode == 2) {
+    
     if (keyVal > 200 && keyVal < 300) {
+      
       if (tm.Minute < 60)
       {
         tm.Minute++;
@@ -346,7 +350,9 @@ void set_time()
         tm.Minute = 0;
       }
     }
+    
     if (keyVal > 300) {
+      
       if (tm.Minute >= 0) {
         tm.Minute--;
       }
@@ -355,15 +361,20 @@ void set_time()
       }
     }
   }
+  
   if (mode == 3) {
+    
     if (keyVal > 200 && keyVal < 300) {
+      
       if (tm.Hour < 24) {
         tm.Hour++;
       } else {
         tm.Hour = 0;
       }
     }
+    
     if (keyVal > 300) {
+      
       if (tm.Hour >= 0) {
         tm.Hour--;
       }
@@ -374,28 +385,37 @@ void set_time()
   }
 
   if (mode == 4) {
+    
     if (keyVal > 200 && keyVal < 300) {
       tm.Day++;
     }
+    
     if (keyVal > 300) {
       tm.Day--;
     }
   }
+  
   if (mode == 5) {
+    
     if (keyVal > 200 && keyVal < 300) {
       tm.Month++;
     }
+    
     if (keyVal > 300) {
       tm.Month--;
     }
   }
+  
   if (mode == 6) {
+    
     if (keyVal > 200 && keyVal < 300) {
       tm.Year++;
     }
+    
     if (keyVal > 300) {
       tm.Year--;
     }
   }
+  
   rtc.write(tm);
 }
