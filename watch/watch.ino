@@ -1,26 +1,37 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <Adafruit_BMP085.h>
+#include <SPI.h>
+#include <Adafruit_BME280.h>
 #include "U8glib.h"
 #include <DS3232RTC.h>
 #include <TimeLib.h>
-#include <EEPROM.h>
+#include "DHT.h"
+#define DHTPIN 6
+#define DHTTYPE DHT22 
 
+DHT dht(DHTPIN, DHTTYPE);
 U8GLIB_ST7920_128X64_1X u8g(13, 12, 11);
-Adafruit_BMP085 dps;
+Adafruit_BME280 bme;
 DS3232RTC  rtc(true);
 long now_hour = 0;
 long Temperature = 0, Pressure = 0;
 int pwm = 3;
-unsigned long temp = 0;
-unsigned long temp2 = 0;
-unsigned long pres = 0;
-unsigned long hydim = 0;
+int temp = 0;
+int pres = 0;
+int hydim = 0;
+int outTemp = 0;
+int outHydim = 0;
+
 int counter = 0;
 int counter2 = 0;
 int light = 50;
 int pressure_counter = 0;
-int pressureArray[128];
+int pressureArray[62];
+int hydimArray[62];
+int hydimOutArray[62];
+int tempArray[62];
+int tempOutArray[62];
+
 long previousMillis = 0;
 long interval = 1;
 tmElements_t tm;
@@ -46,15 +57,15 @@ void setup()
   Serial.begin(9600);
   boot_screen();
   setup_bmp();
+  dht.begin();
   getData();
-  //clearEEPROM();
-  //readFromEEPROM();
-  updatePressure();
+  updateDataArrays();
   show_data();
   previousMillis = tm.Second;
   //set_time();
   pinMode(key, INPUT);
   pinMode(sensor, INPUT);
+  getData();
 }
 
 void loop()
@@ -68,7 +79,7 @@ void loop()
       if (keyVal < 200) {
         if (mode < 7) {
           mode++;
-          if(mode == 7){
+          if (mode == 7) {
             mode = 1;
             show_data();
           }
@@ -99,70 +110,88 @@ void loop()
     counter++;
     pressure_counter++;
   }
+
   if (currentMillis - previousMillis >= interval) {
     show_data();
     counter++;
     previousMillis = currentMillis;
     pressure_counter++;
   }
-  if (pressure_counter == 1800) {
-    updatePressure();
-    //readFromEEPROM();
-    //writeToEEPROM();
+
+  if (pressure_counter == 900) {
+    updateDataArrays();
     pressure_counter = 0;
     show_data();
   }
 }
 
+void updateDataArrays()
+{
+  updatePressure();
+  updateTemp();
+  updateTempOut();
+  updateHydim();
+  updateHydimOut();
+}
+
 void updatePressure()
 {
+  int tmp_val = map(pres, 680, 780, 1, 14);
+  Serial.print(tmp_val);
+  Serial.print(" pres| ");
+  updateDataArray(pressureArray, tmp_val);
+}
+
+void updateTemp()
+{
+  int tmp_val = map(temp, -25, 45, 1, 14);
+  Serial.print(tmp_val);
+  Serial.print(" tmp| ");
+  updateDataArray(tempArray, tmp_val);
+}
+
+void updateTempOut()
+{
+  int tmp_val = map(outTemp, -25, 45, 1, 14);
+  Serial.print(tmp_val);
+  Serial.print(" tmp out| ");
+  updateDataArray(tempOutArray, tmp_val);
+}
+
+void updateHydim()
+{
+  int tmp_val = map(hydim, 0, 100, 1, 14);
+  Serial.print(tmp_val);
+  Serial.print(" hyd| ");
+  updateDataArray(hydimArray, tmp_val);
+}
+
+void updateHydimOut()
+{
+  int tmp_val = map(outHydim, 0, 100, 1, 14);
+  Serial.print(tmp_val);
+  Serial.print(" hyd out| ");
+  updateDataArray(hydimOutArray, tmp_val);
+  Serial.println();
+}
+
+void updateDataArray(int arr[], int data)
+{
   int i;
-  int tmp_val = pres - 730;
-  for (i = 1; i < 128; i++ ) {
-    if (i == 127) {
-      pressureArray[i] = tmp_val;
+  Serial.print( data);
+  Serial.print(" tmp_val| ");
+  for (i = 0; i < 62; i++ ) {
+    if (i == 61) {
+      arr[i] = data;
     } else {
-      pressureArray[i] = pressureArray[i + 1];
+      arr[i] = arr[i + 1];
     }
-    if (pressureArray[i] > 30) {
-      pressureArray[i] = 31;
+    if (arr[i] > 14) {
+      arr[i] = 14;
     }
-    if (pressureArray[i] < 1) {
-      pressureArray[i] = 1;
+    if (arr[i] < 1) {
+      arr[i] = 0;
     }
-  }
-}
-
-void writeToEEPROM()
-{
-  for (int i = 0; i < 128; i++ ) {
-    EEPROM.put(i, pressureArray[i]);
-    Serial.print(i);
-    Serial.print(" ");
-    Serial.print(pressureArray[i]);
-    Serial.print(" ");
-    EEPROM.get(i, pressureArray[i]);
-    Serial.println(pressureArray[i]);
-  }
-}
-
-void clearEEPROM()
-{
-  for (int i = 0; i < 128; i++ ) {
-    EEPROM.put(i, 0);
-  }
-}
-
-void readFromEEPROM()
-{
-  for (int i = 0; i < 128; i++ ) {
-    EEPROM.get(i, pressureArray[i]);
-    Serial.print(i);
-    Serial.print(" ");
-    Serial.print(pressureArray[i]);
-    Serial.print(" ");
-    EEPROM.get(i, pressureArray[i]);
-    Serial.println(pressureArray[i]);
   }
 }
 
@@ -181,7 +210,10 @@ void setup_bmp()
 {
   Wire.begin();
   delay(1000);
-  dps.begin();
+  if (! bme.begin(0x76, &Wire)) {
+    Serial.println(F("Could not find a valid BME280 sensor, check wiring!"));
+    while (1) delay(10);
+  }
   getData();
   RTC.read(tm);
 }
@@ -191,9 +223,9 @@ void show_data()
   int hour = tm.Hour;
   int minute = tm.Minute;
   int second = tm.Second;
-  int year = tm.Year + 1970;
-  int month = tm.Month;
-  int day = tm.Day;
+  //  int year = tm.Year + 1970;
+  //  int month = tm.Month;
+  //  int day = tm.Day;
 
   u8g.firstPage();
   do {
@@ -217,30 +249,37 @@ void show_data()
     u8g.undoScale();
     u8g.setFont(u8g_font_6x12);
     u8g.setPrintPos(0, 31);
-    u8g.print(year);
-    u8g.print(".");
-    if (month < 10) {
-      u8g.print(0);
-    }
-    u8g.print(month);
-    u8g.print(".");
-    if (day < 10) {
-      u8g.print(0);
-    }
-    u8g.print(day);
-    u8g.print(" ");
-    u8g.print( temp );
-    u8g.write(0xBA);
-    u8g.print("C");
-    u8g.print(" ");
     u8g.print( pres );
     u8g.print("mm");
+    u8g.setPrintPos(31, 31);
+    //u8g.print(" ");
+    u8g.print( temp );
+    u8g.print( "|" );
+    u8g.print( outTemp );
+    u8g.print( "|" );
+    u8g.print(int(dht.computeHeatIndex(outTemp, outHydim, false)));
+    u8g.write(0xBA);
+    u8g.print("C");
+    u8g.setPrintPos(92, 31);
+    //u8g.print(" ");
+    u8g.print( hydim );
+    u8g.print( "|" );
+    u8g.print( outHydim );
+    u8g.print("%");
+
     if (mode == 1) {
       int i;
-      for (i = 0; i < 128; i++ ) {
-        u8g.drawLine(i, 64, i, 64 -  pressureArray[i]);
+      for (i = 0; i < 62; i++ ) {
+        u8g.drawLine(i, 49, i, 49 - pressureArray[i]);
+        u8g.drawLine(i + 66, 49, i + 66, 49 - tempOutArray[i]);
+        u8g.drawLine(i, 63, i, 63 - hydimArray[i]);
+        u8g.drawLine(i + 66, 63, i + 66, 63 - hydimOutArray[i]);
       }
-      u8g.drawLine(0, 32, 128, 32);
+
+//      u8g.drawLine(0, 49, 62, 49);
+//      u8g.drawLine(66, 49, 127, 49);
+//      u8g.drawLine(0, 63, 62, 63);
+//      u8g.drawLine(66, 63, 127, 63);
     }
     else {
       u8g.setPrintPos(0, 45);
@@ -254,8 +293,30 @@ void show_data()
 
 void getData()
 {
-  temp = dps.readTemperature();
-  pres = dps.readPressure() / 133.3;
+  temp = int(bme.readTemperature());
+  pres = int(bme.readPressure() / 133.3);
+  hydim = int(bme.readHumidity());
+
+  int tempVal = int(dht.readHumidity());
+  if (tempVal < 100 and tempVal > -100) {
+    outHydim = tempVal;
+  }
+
+  tempVal  = int(dht.readTemperature());
+  if (tempVal < 100 and tempVal > -100) {
+    outTemp = tempVal;
+  }
+
+  Serial.print(temp);
+  Serial.print('|');
+  Serial.print(outTemp);
+  Serial.print('|');
+  Serial.print(hydim);
+  Serial.print('|');
+  Serial.print(outHydim);
+  Serial.print('|');
+  Serial.print(pres);
+  Serial.println();
 }
 
 void setLight()
@@ -277,18 +338,38 @@ void set_time()
   int keyVal = analogRead(key);
   if (mode == 2) {
     if (keyVal > 200 && keyVal < 300) {
-      tm.Minute++;
+      if (tm.Minute < 60)
+      {
+        tm.Minute++;
+      }
+      else {
+        tm.Minute = 0;
+      }
     }
     if (keyVal > 300) {
-      tm.Minute--;
+      if (tm.Minute >= 0) {
+        tm.Minute--;
+      }
+      else {
+        tm.Minute = 59;
+      }
     }
   }
   if (mode == 3) {
     if (keyVal > 200 && keyVal < 300) {
-      tm.Hour++;
+      if (tm.Hour < 24) {
+        tm.Hour++;
+      } else {
+        tm.Hour = 0;
+      }
     }
     if (keyVal > 300) {
-      tm.Hour--;
+      if (tm.Hour >= 0) {
+        tm.Hour--;
+      }
+      else {
+        tm.Hour = 24;
+      }
     }
   }
 
@@ -317,18 +398,4 @@ void set_time()
     }
   }
   rtc.write(tm);
-}
-
-void sound_beep()
-{
-  //int i = 0;
-  //for (i; i < 3; i++) {
-  tone(2, 1000, 100);
-  delay(100);
-  tone(2, 500, 50);
-  delay(50);
-  tone(2, 1000, 100);
-  delay(100);
-  //noTone(2);
-  //}
 }
